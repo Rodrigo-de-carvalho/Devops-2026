@@ -76,27 +76,42 @@ def refresh_stale_series():
                 app.logger.warning("Falha ao atualizar série %s: %s", code, exc)
 
 
-def refresh_in_background():
-    """Dispara refresh_stale_series em uma thread separada, sem bloquear a
+def refresh_all_series():
+    """Atualiza todas as séries, ignorando a idade do cache."""
+    for code in bcb.SERIES:
+        try:
+            points = bcb.fetch_series_from_bcb(code)
+            bcb.upsert_series(code, points)
+        except (requests.RequestException, ValueError) as exc:  # noqa: BLE001
+            app.logger.warning("Falha ao atualizar série %s: %s", code, exc)
+
+
+def refresh_in_background(force: bool = False) -> bool:
+    """Dispara a atualização em uma thread separada, sem bloquear a
     requisição. A busca no IF.data percorre dezenas de trimestres e pode
     passar do timeout do gunicorn (60s) — se rodasse dentro da requisição,
-    a página ficaria carregando até o worker ser morto."""
+    a página ficaria carregando até o worker ser morto.
+
+    Com force=True atualiza todas as séries, mesmo com o cache novo.
+    Retorna False se já havia uma atualização em andamento (ou, sem force,
+    se a última tentativa foi há menos de REFRESH_RETRY_SECONDS)."""
     global _last_refresh_attempt
-    if time.time() - _last_refresh_attempt < REFRESH_RETRY_SECONDS:
-        return
+    if not force and time.time() - _last_refresh_attempt < REFRESH_RETRY_SECONDS:
+        return False
     if not _refresh_lock.acquire(blocking=False):
-        return  # já tem uma atualização em andamento
+        return False  # já tem uma atualização em andamento
     _last_refresh_attempt = time.time()
 
     def run():
         try:
-            refresh_stale_series()
+            refresh_all_series() if force else refresh_stale_series()
         except Exception:  # noqa: BLE001
             app.logger.exception("Falha ao atualizar o cache em segundo plano")
         finally:
             _refresh_lock.release()
 
     threading.Thread(target=run, daemon=True).start()
+    return True
 
 
 def get_series_data(series_code: int):
@@ -175,14 +190,14 @@ def api_indicators():
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
     """Força a atualização de todas as séries via cache batch, ignorando a
-    idade do cache. Útil como fallback quando não se está usando Kafka."""
-    for code in bcb.SERIES:
-        try:
-            points = bcb.fetch_series_from_bcb(code)
-            bcb.upsert_series(code, points)
-        except (requests.RequestException, ValueError) as exc:  # noqa: BLE001
-            return jsonify({"status": "error", "series": code, "detail": str(exc)}), 502
-    return jsonify({"status": "ok", "refreshed": list(bcb.SERIES.keys())})
+    idade do cache. Útil como fallback quando não se está usando Kafka.
+    Roda em segundo plano (ver refresh_in_background) e responde 202 na hora,
+    para o workflow refresh-data.yml não esbarrar no timeout do gunicorn."""
+    started = refresh_in_background(force=True)
+    return jsonify({
+        "status": "started" if started else "already_running",
+        "series": list(bcb.SERIES.keys()),
+    }), 202
 
 
 @app.route("/healthz")
