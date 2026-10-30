@@ -1,0 +1,16 @@
+name: Dados - Refresh agendado (BCB)
+
+# Chama o endpoint /api/refresh periodicamente, mesmo sem visitas ao dashboard.
+# Útil para que a primeira visita do dia já encontre dados atualizados.
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # a cada 6 horas
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar /api/refresh
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_HEALTHCHECK_URL }}/api/refresh"

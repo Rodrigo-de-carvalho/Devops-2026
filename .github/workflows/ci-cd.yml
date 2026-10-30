@@ -1,0 +1,108 @@
+name: CI/CD - Dashboard App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "Dockerfile"
+      - ".github/workflows/ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "Dockerfile"
+  workflow_dispatch:
+
+# O GHCR exige nome de repositório em minúsculas; github.repository vem
+# como "Rodrigo-de-carvalho/Devops-2026", então o nome é fixado em minúsculas.
+env:
+  IMAGE_NAME: ghcr.io/rodrigo-de-carvalho/devops-2026/dashboard-app
+
+jobs:
+  test:
+    name: Testes e lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        working-directory: app
+        run: |
+          pip install -r requirements.txt
+          pip install flake8
+
+      - name: Lint (flake8)
+        working-directory: app
+        run: flake8 . --max-line-length=100 --extend-ignore=E501,W503 --exit-zero
+
+      - name: Checagem de sintaxe (sanidade da app)
+        working-directory: app
+        run: python -m py_compile app.py bcb_client.py
+        # Nota: usamos py_compile (só verifica sintaxe) em vez de
+        # `import app`, porque app.py chama bcb.init_db() assim que o
+        # módulo é carregado (necessário para funcionar sob gunicorn em
+        # produção — ver README, Troubleshooting item 3). Um import de
+        # verdade aqui exigiria AIVEN_DB_URL configurada no runner do CI
+        # e uma conexão de rede até o Postgres, o que foge do escopo de
+        # um teste rápido de lint/sintaxe.
+
+  build-and-push:
+    name: Build + push da imagem Docker
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy:
+    name: Deploy (Render)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Disparar deploy hook do Render
+        run: |
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: Health check pós-deploy
+        # O Render leva alguns minutos para buildar e trocar a versão (e o
+        # plano free tem cold start), então tenta por até ~5 min em vez de
+        # uma espera fixa.
+        run: |
+          sleep 30
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 30 "${{ secrets.APP_HEALTHCHECK_URL }}/healthz"; then
+              echo; echo "App no ar (tentativa $i)"; exit 0
+            fi
+            echo "Tentativa $i falhou, aguardando 15s..."
+            sleep 15
+          done
+          echo "App não respondeu /healthz a tempo"; exit 1

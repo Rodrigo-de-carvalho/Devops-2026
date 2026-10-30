@@ -1,0 +1,36 @@
+name: Kafka - Producer (BCB → tópico)
+
+# NOTA: este workflow só funciona se você provisionou o Aiven for Apache
+# Kafka e configurou os 5 secrets de Kafka no repositório (ver README,
+# seção "Streaming com Kafka"). Até lá, fica só como workflow_dispatch
+# manual — se ficasse em `schedule`, falharia sozinho a cada 15 min e
+# encheria sua caixa de entrada de emails de erro sem Kafka configurado.
+on:
+  workflow_dispatch:
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+      KAFKA_USERNAME: ${{ secrets.KAFKA_USERNAME }}
+      KAFKA_PASSWORD: ${{ secrets.KAFKA_PASSWORD }}
+      KAFKA_CA_CERT_PEM: ${{ secrets.KAFKA_CA_CERT_PEM }}
+      KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Publicar eventos
+        run: python producer.py

@@ -1,0 +1,42 @@
+name: Kafka - Consumer em lote (rede de segurança)
+
+# Roda no mesmo group_id do worker contínuo do Render — o Kafka garante
+# que as duas execuções nunca processam a mesma mensagem ao mesmo tempo.
+# Se o worker do Render estiver ativo, este job normalmente não encontra
+# nada pendente (o que é esperado); se o worker cair, este job garante
+# que os dados não fiquem represados por muito tempo.
+#
+# NOTA: só funciona com Kafka provisionado e os secrets configurados (ver
+# README). Até lá, fica só como workflow_dispatch manual — em `schedule`
+# falharia sozinho a cada 20 min sem Kafka configurado.
+on:
+  workflow_dispatch:
+
+jobs:
+  consume:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      AIVEN_DB_URL: ${{ secrets.AIVEN_DB_URL }}
+      KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+      KAFKA_USERNAME: ${{ secrets.KAFKA_USERNAME }}
+      KAFKA_PASSWORD: ${{ secrets.KAFKA_PASSWORD }}
+      KAFKA_CA_CERT_PEM: ${{ secrets.KAFKA_CA_CERT_PEM }}
+      KAFKA_TOPIC: ${{ secrets.KAFKA_TOPIC }}
+      KAFKA_GROUP_ID: bcb-consumer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Consumir por 30s e sair
+        run: python consumer.py --once --timeout 30
