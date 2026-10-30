@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard — Indicadores BCB + Banco Master</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>📊 Indicadores do Banco Central — trabalho original + Banco Master</h1>
+    <p class="subtitle">
+      SGS (Dólar, Selic, IPCA) e IF.data (Banco Master) no mesmo gráfico ·
+      cache renovado a cada {{ data.cache_hours }}h ·
+      persistidos em PostgreSQL gerenciado pela Aiven.io
+    </p>
+  </header>
+
+  {% for fonte, fonte_label in data.fontes.items() %}
+  <h2 class="fonte-title fonte-{{ fonte }}">{{ fonte_label }}</h2>
+  <section class="cards">
+    {% for ind in data.indicators if ind.fonte == fonte %}
+    <div class="card fonte-{{ fonte }}">
+      <span class="label">{{ ind.name }}</span>
+      <span class="value">
+        {{ ind.latest_value if ind.latest_value is not none else "—" }}
+        <span class="unit">{{ ind.unit }}</span>
+      </span>
+      <span class="meta">
+        {% if ind.latest_date %}ref. {{ ind.latest_date }}{% else %}sem dados ainda{% endif %}
+        {% if ind.delta is not none %}
+          · <span class="{{ 'up' if ind.delta > 0 else ('down' if ind.delta < 0 else '') }}">
+            {{ "%+.2f"|format(ind.delta) }}
+          </span>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <section class="cards">
+    <div class="card muted">
+      <span class="label">Acessos ao dashboard</span>
+      <span class="value">{{ data.total_visits }}</span>
+      <span class="meta">uptime: {{ data.uptime_seconds }}s</span>
+    </div>
+  </section>
+
+  <section class="chart-container">
+    <h2>Séries históricas — dados originais e Banco Master juntos</h2>
+    <div class="filtros">
+      <button type="button" data-filtro="todas" class="ativo">Todas</button>
+      {% for fonte, fonte_label in data.fontes.items() %}
+      <button type="button" data-filtro="{{ fonte }}">{{ fonte_label }}</button>
+      {% endfor %}
+    </div>
+    <p class="legenda-estilo">
+      Linha tracejada = trabalho original (SGS, mensal) · linha contínua = Banco Master (IF.data, trimestral).
+      Clique em uma série na legenda para ocultá-la/mostrá-la.
+    </p>
+    <canvas id="indicatorsChart" height="110"></canvas>
+  </section>
+
+  <footer>
+    <small>
+      Atualiza automaticamente a cada 60s · Fonte:
+      <a href="https://dadosabertos.bcb.gov.br/" target="_blank" rel="noopener">dadosabertos.bcb.gov.br</a>
+      · <a href="/api/indicators">/api/indicators</a> · <a href="/healthz">/healthz</a>
+    </small>
+  </footer>
+
+  <script>
+    const indicators = {{ data.indicators | tojson }};
+    const colors = ["#4f46e5", "#16a34a", "#dc2626", "#f59e0b", "#06b6d4", "#d946ef", "#84cc16"];
+
+    // Unidades parecidas dividem o mesmo eixo Y ("%" e "% a.a." ficam juntos),
+    // para que valores de ordens de grandeza diferentes não se achatem.
+    const eixos = {
+      "R$ bi": { id: "yBi", title: "R$ bilhões (Banco Master)", position: "left" },
+      "%": { id: "yPct", title: "%", position: "right" },
+      "R$": { id: "yBrl", title: "R$ (Dólar)", position: "right" },
+    };
+    const eixoDe = (unit) => eixos[unit.startsWith("%") ? "%" : unit] || eixos["%"];
+
+    const datasets = indicators.map((ind, i) => ({
+      label: ind.name + " (" + ind.unit + ")",
+      fonte: ind.fonte,
+      data: ind.dates.map((d, j) => ({ x: d, y: ind.values[j] })),
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length] + "26",
+      borderDash: ind.fonte === "original" ? [6, 4] : [],
+      pointRadius: ind.fonte === "original" ? 1.5 : 3,
+      tension: 0.3,
+      yAxisID: eixoDe(ind.unit).id,
+      fill: false
+    }));
+
+    const scales = {
+      x: {
+        type: "time",
+        time: { tooltipFormat: "dd/MM/yyyy", displayFormats: { day: "dd/MM/yy", month: "MM/yyyy", quarter: "MM/yyyy" } },
+        ticks: { color: "#9a9ac0" },
+        grid: { color: "#2c2f52" }
+      }
+    };
+    const usados = new Set(datasets.map(d => d.yAxisID));
+    let gradeDesenhada = false;  // só o primeiro eixo desenha a grade no gráfico
+    Object.values(eixos).forEach(e => {
+      if (!usados.has(e.id)) return;
+      scales[e.id] = {
+        display: "auto",  // some o eixo quando todas as séries dele estão ocultas
+        position: e.position,
+        beginAtZero: false,
+        title: { display: true, text: e.title, color: "#9a9ac0" },
+        ticks: { color: "#9a9ac0" },
+        grid: { drawOnChartArea: !gradeDesenhada, color: "#2c2f52" }
+      };
+      gradeDesenhada = true;
+    });
+
+    const chart = new Chart(document.getElementById('indicatorsChart'), {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        plugins: { legend: { display: true, position: 'bottom', labels: { color: "#e6e6f0" } } },
+        scales
+      }
+    });
+
+    // Filtro por fonte: mostra só o trabalho original, só o Banco Master, ou ambos.
+    document.querySelectorAll(".filtros button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const filtro = btn.dataset.filtro;
+        document.querySelectorAll(".filtros button").forEach(b => b.classList.toggle("ativo", b === btn));
+        chart.data.datasets.forEach((ds, i) => {
+          chart.setDatasetVisibility(i, filtro === "todas" || ds.fonte === filtro);
+        });
+        chart.update();
+      });
+    });
+
+    setTimeout(() => location.reload(), 60000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #0f1220;
+  color: #e6e6f0;
+  margin: 0;
+  padding: 2rem;
+}
+header h1 { margin-bottom: 0.2rem; }
+.subtitle { color: #9a9ac0; margin-top: 0; }
+
+.cards {
+  display: flex;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  flex-wrap: wrap;
+}
+.card {
+  background: #1a1e33;
+  border: 1px solid #2c2f52;
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+.card .label { color: #9a9ac0; font-size: 0.85rem; }
+.card .value { font-size: 1.8rem; font-weight: 700; color: #a5b4fc; }
+.card .value.small { font-size: 1rem; }
+.card .unit { font-size: 1rem; font-weight: 500; color: #9a9ac0; margin-left: 0.3rem; }
+.card .meta { font-size: 0.8rem; color: #6b6b91; margin-top: 0.3rem; }
+.card.muted .value { color: #cbd5e1; }
+.up { color: #4ade80; }
+.down { color: #f87171; }
+
+.chart-container, .table-container {
+  background: #1a1e33;
+  border: 1px solid #2c2f52;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #2c2f52; }
+th { color: #9a9ac0; font-weight: 600; }
+
+footer { color: #6b6b91; text-align: center; margin-top: 2rem; }
+footer a { color: #a5b4fc; }
+
+.fonte-title { font-size: 1.05rem; margin: 1.5rem 0 0; color: #cbd5e1; }
+.fonte-title.fonte-original { border-left: 4px dashed #f59e0b; padding-left: 0.6rem; }
+.fonte-title.fonte-master { border-left: 4px solid #4f46e5; padding-left: 0.6rem; }
+.card.fonte-original { border-style: dashed; }
+
+.filtros { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.filtros button {
+  background: #0f1220;
+  color: #cbd5e1;
+  border: 1px solid #2c2f52;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+.filtros button.ativo { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.legenda-estilo { color: #9a9ac0; font-size: 0.85rem; margin: 0 0 1rem; }
