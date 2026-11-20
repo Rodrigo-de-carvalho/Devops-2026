@@ -220,11 +220,23 @@ def _fetch_sgs(series_code: int, n: int):
 
 
 def _fetch_ifdata(series_code: int, n: int):
-    """Série do Banco Master (uma "Conta" do IF.data), trimestre a trimestre."""
+    """Série do Banco Master (uma "Conta" do IF.data), trimestre a trimestre.
+
+    O IF.data às vezes responde 500 para alguns trimestres (ou para todos,
+    quando o serviço está instável). Um trimestre com erro é pulado, para não
+    perder os outros; só se TODOS falharem o erro é repassado, para aparecer
+    no log de quem chamou."""
     escala = SERIES[series_code]["escala"]
     parsed = []
-    for ano_mes in _trimestres()[-n:]:
-        for item in _buscar_trimestre(ano_mes):
+    trimestres = _trimestres()[-n:]
+    falhas = []
+    for ano_mes in trimestres:
+        try:
+            linhas = _buscar_trimestre(ano_mes)
+        except requests.RequestException as exc:
+            falhas.append(exc)
+            continue
+        for item in linhas:
             if item["Conta"] == str(series_code) and item["Saldo"] is not None:
                 ano, mes = int(ano_mes[:4]), int(ano_mes[4:])
                 ultimo_dia = calendar.monthrange(ano, mes)[1]
@@ -232,6 +244,8 @@ def _fetch_ifdata(series_code: int, n: int):
                     "ref_date": datetime.date(ano, mes, ultimo_dia),
                     "value": float(item["Saldo"]) * escala,
                 })
+    if falhas and len(falhas) == len(trimestres):
+        raise falhas[-1]
     return parsed
 
 
