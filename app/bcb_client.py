@@ -11,7 +11,6 @@ import psycopg2
 from psycopg2 import pool as psycopg2_pool
 from psycopg2.extras import RealDictCursor
 import requests
-import calendar
 
 DB_URL = os.environ.get("AIVEN_DB_URL")
 
@@ -20,8 +19,8 @@ DB_URL = os.environ.get("AIVEN_DB_URL")
 #   1. "original" — as séries do SGS/BCB do trabalho original (Dólar, Selic,
 #      IPCA). Dados abertos, sem autenticação.
 #      Referência completa de códigos: https://www3.bcb.gov.br/sgspub
-#   2. "master" — os dados do IF.data (Banco Central) sobre o Banco Master,
-#      conglomerado prudencial (trabalho novo).
+#   2. "credito" — séries do SGS/BCB sobre crédito e inadimplência no
+#      sistema bancário (trabalho novo). Mesma API da fonte "original".
 #
 # Os códigos das duas fontes não se repetem, então as duas convivem na
 # mesma tabela bcb_series sem conflito.
@@ -29,31 +28,21 @@ SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados"
 # Janela buscada no SGS: cobre os últimos POINTS_PER_SERIES meses.
 SGS_JANELA_DIAS = 3 * 365
 
-# Dados do IF.data (Banco Central) sobre o Banco Master — conglomerado prudencial.
-# Consulta: https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/aplicacao
-IFDATA_URL = (
-    "https://olinda.bcb.gov.br/olinda/servico/IFDATA/versao/v1/odata/"
-    "IfDataValores(AnoMes=@AnoMes,TipoInstituicao=@TipoInstituicao,Relatorio=@Relatorio)"
-)
-COD_INST = "C0080367"          # BANCO MASTER - PRUDENCIAL
-PRIMEIRO_TRIMESTRE = (2020, 3)  # (ano, mês) do primeiro trimestre buscado
-
 FONTES = {
     "original": "Trabalho original — SGS/BCB",
-    "master": "Trabalho novo — Banco Master (IF.data)",
+    "credito": "Trabalho novo — Crédito e inadimplência bancária (SGS/BCB)",
 }
 
-# Fonte "original": a chave é o código da série no SGS.
-# Fonte "master": a chave é o número da "Conta" no IF.data (relatório Resumo);
-# "escala" converte o Saldo para a unidade exibida (reais -> bilhões, fração -> %).
+# A chave é o código da série no SGS (as duas fontes usam a mesma API).
+# "escala" (opcional) converte o valor para a unidade exibida
+# (ex.: R$ milhões -> R$ bilhões).
 SERIES = {
     1: {"name": "Dólar comercial (venda)", "unit": "R$", "casas": 4, "fonte": "original"},
     432: {"name": "Meta Selic (Copom)", "unit": "% a.a.", "casas": 2, "fonte": "original"},
     433: {"name": "IPCA — variação mensal", "unit": "%", "casas": 2, "fonte": "original"},
-    78182: {"name": "Ativo Total", "unit": "R$ bi", "casas": 2, "escala": 1e-9, "fonte": "master"},
-    78186: {"name": "Patrimônio Líquido", "unit": "R$ bi", "casas": 2, "escala": 1e-9, "fonte": "master"},
-    78187: {"name": "Lucro Líquido", "unit": "R$ bi", "casas": 2, "escala": 1e-9, "fonte": "master"},
-    79664: {"name": "Índice de Basileia", "unit": "%", "casas": 2, "escala": 100, "fonte": "master"},
+    20539: {"name": "Saldo da carteira de crédito", "unit": "R$ bi", "casas": 1, "escala": 1e-3, "fonte": "credito"},
+    21082: {"name": "Inadimplência da carteira", "unit": "%", "casas": 2, "fonte": "credito"},
+    20714: {"name": "Taxa média de juros do crédito", "unit": "% a.a.", "casas": 2, "fonte": "credito"},
 }
 POINTS_PER_SERIES = 30
 
@@ -146,57 +135,21 @@ def init_db():
             raise
 
 
-_cache_trimestres = {}
-
-
-def _trimestres():
-    """Lista os fins de trimestre ('AAAAMM') do PRIMEIRO_TRIMESTRE até hoje."""
-    hoje = datetime.date.today()
-    ano, mes = PRIMEIRO_TRIMESTRE
-    lista = []
-    while (ano, mes) <= (hoje.year, hoje.month):
-        lista.append(f"{ano}{mes:02d}")
-        mes += 3
-        if mes > 12:
-            ano, mes = ano + 1, 3
-    return lista
-
-
-def _buscar_trimestre(ano_mes: str):
-    """Busca o relatório Resumo do Banco Master em um trimestre. Guarda em
-    memória para as 4 séries não repetirem a mesma chamada (trimestres sem
-    dados não são guardados, para serem tentados de novo mais tarde)."""
-    if ano_mes in _cache_trimestres:
-        return _cache_trimestres[ano_mes]
-    url = (
-        f"{IFDATA_URL}?@AnoMes={ano_mes}&@TipoInstituicao=1&@Relatorio='1'"
-        f"&$filter=CodInst%20eq%20'{COD_INST}'&$format=json"
-    )
-    resp = requests.get(url, timeout=20)
-    resp.raise_for_status()
-    linhas = resp.json()["value"]
-    if linhas:
-        _cache_trimestres[ano_mes] = linhas
-    return linhas
-
-
 def fetch_series_from_bcb(series_code: int, n: int = POINTS_PER_SERIES):
-    """Busca os últimos n pontos de uma série, na fonte certa (SGS para as
-    séries do trabalho original, IF.data para as do Banco Master). Usado por
-    app.py, producer.py e consumer.py."""
-    if SERIES[series_code]["fonte"] == "original":
-        return _fetch_sgs(series_code, n)
-    return _fetch_ifdata(series_code, n)
+    """Busca os últimos n pontos de uma série do SGS/BCB. Usado por app.py,
+    producer.py e consumer.py."""
+    return _fetch_sgs(series_code, n)
 
 
 def _fetch_sgs(series_code: int, n: int):
-    """Série do SGS/BCB (código do trabalho original). Usa o endpoint /dados
+    """Série do SGS/BCB. Usa o endpoint /dados
     com dataInicial/dataFinal — o /ultimos/{n} passou a responder 400 — e
     recorta os últimos n pontos localmente.
 
     Séries diárias (Dólar, Selic) ficam com o último valor de cada mês: assim
-    as séries do trabalho original cobrem o mesmo período que as do Banco
-    Master e dá para comparar as duas no mesmo gráfico."""
+    as séries diárias ficam no mesmo ritmo das mensais e dá para comparar
+    todas no mesmo gráfico. Aplica a "escala" da série, se houver."""
+    escala = SERIES[series_code].get("escala", 1)
     hoje = datetime.date.today()
     inicio = hoje - datetime.timedelta(days=SGS_JANELA_DIAS)
     resp = requests.get(
@@ -214,39 +167,9 @@ def _fetch_sgs(series_code: int, n: int):
         ref_date = datetime.datetime.strptime(item["data"], "%d/%m/%Y").date()
         por_mes[(ref_date.year, ref_date.month)] = {
             "ref_date": ref_date,
-            "value": float(item["valor"]),
+            "value": float(item["valor"]) * escala,
         }
     return [por_mes[mes] for mes in sorted(por_mes)][-n:]
-
-
-def _fetch_ifdata(series_code: int, n: int):
-    """Série do Banco Master (uma "Conta" do IF.data), trimestre a trimestre.
-
-    O IF.data às vezes responde 500 para alguns trimestres (ou para todos,
-    quando o serviço está instável). Um trimestre com erro é pulado, para não
-    perder os outros; só se TODOS falharem o erro é repassado, para aparecer
-    no log de quem chamou."""
-    escala = SERIES[series_code]["escala"]
-    parsed = []
-    trimestres = _trimestres()[-n:]
-    falhas = []
-    for ano_mes in trimestres:
-        try:
-            linhas = _buscar_trimestre(ano_mes)
-        except requests.RequestException as exc:
-            falhas.append(exc)
-            continue
-        for item in linhas:
-            if item["Conta"] == str(series_code) and item["Saldo"] is not None:
-                ano, mes = int(ano_mes[:4]), int(ano_mes[4:])
-                ultimo_dia = calendar.monthrange(ano, mes)[1]
-                parsed.append({
-                    "ref_date": datetime.date(ano, mes, ultimo_dia),
-                    "value": float(item["Saldo"]) * escala,
-                })
-    if falhas and len(falhas) == len(trimestres):
-        raise falhas[-1]
-    return parsed
 
 
 def upsert_series(series_code: int, points: list):

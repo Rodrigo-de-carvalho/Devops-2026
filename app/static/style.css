@@ -50,7 +50,7 @@ footer a { color: #a5b4fc; }
 
 .fonte-title { font-size: 1.05rem; margin: 1.5rem 0 0; color: #cbd5e1; }
 .fonte-title.fonte-original { border-left: 4px dashed #f59e0b; padding-left: 0.6rem; }
-.fonte-title.fonte-master { border-left: 4px solid #4f46e5; padding-left: 0.6rem; }
+.fonte-title.fonte-credito { border-left: 4px solid #4f46e5; padding-left: 0.6rem; }
 .card.fonte-original { border-style: dashed; }
 
 .filtros { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }

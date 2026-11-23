@@ -88,7 +88,7 @@ def refresh_all_series():
 
 def refresh_in_background(force: bool = False) -> bool:
     """Dispara a atualização em uma thread separada, sem bloquear a
-    requisição. A busca no IF.data percorre dezenas de trimestres e pode
+    requisição. A busca no BCB pode demorar e pode
     passar do timeout do gunicorn (60s) — se rodasse dentro da requisição,
     a página ficaria carregando até o worker ser morto.
 

@@ -108,15 +108,15 @@ laboratório básico funciona só com os 4 primeiros.
   uptime, um gráfico (Chart.js) de acessos por minuto e os últimos
   acessos registrados, tudo lido do Postgres da Aiven.
 
-## Fonte de dados: trabalho original + Banco Master, juntos
+## Fonte de dados: trabalho original + crédito e inadimplência, juntos
 
 O dashboard consome a **API de Dados Abertos do Banco Central do Brasil**
 ([dadosabertos.bcb.gov.br](https://dadosabertos.bcb.gov.br/)) — pública,
 sem necessidade de chave ou cadastro — e mostra **duas fontes de dados
-convivendo no mesmo gráfico**:
+convivendo no mesmo gráfico**. As duas vêm do **SGS** (Sistema Gerenciador
+de Séries Temporais):
 
-**1. Trabalho original — SGS** (Sistema Gerenciador de Séries Temporais).
-Linha **tracejada** no gráfico:
+**1. Trabalho original.** Linha **tracejada** no gráfico:
 
 | Código | Indicador | Unidade |
 |---|---|---|
@@ -125,24 +125,30 @@ Linha **tracejada** no gráfico:
 | 433 | IPCA — variação mensal | % |
 
 As séries diárias (Dólar, Selic) são guardadas com o último valor de cada
-mês, para cobrirem o mesmo período das séries do Banco Master.
+mês, para ficarem no mesmo ritmo das séries mensais de crédito.
 
-**2. Trabalho novo — Banco Master (IF.data)**, conglomerado prudencial
-`C0080367`, relatório Resumo, trimestral. Linha **contínua** no gráfico:
+**2. Trabalho novo — crédito e inadimplência bancária.** Linha **contínua**
+no gráfico:
 
-| Conta | Indicador | Unidade |
+| Código | Indicador | Unidade |
 |---|---|---|
-| 78182 | Ativo Total | R$ bi |
-| 78186 | Patrimônio Líquido | R$ bi |
-| 78187 | Lucro Líquido | R$ bi |
-| 79664 | Índice de Basileia | % |
+| 20539 | Saldo da carteira de crédito (total) | R$ bi |
+| 21082 | Inadimplência da carteira de crédito (total) | % |
+| 20714 | Taxa média de juros das operações de crédito (total) | % a.a. |
+
+> **Por que não o Banco Master?** A versão anterior usava o IF.data
+> (`olinda.bcb.gov.br`) para o Banco Master, mas o firewall do Banco Central
+> passou a rejeitar as consultas ("Request Rejected" / 403), então os
+> cards ficavam sem dados. O tema foi trocado por séries do SGS, que
+> respondem normalmente.
 
 As duas fontes ficam na mesma tabela `bcb_series` (os códigos não se
 repetem) e são declaradas juntas no dicionário `SERIES` de `bcb_client.py`,
-onde o campo `fonte` (`original` ou `master`) diz de onde buscar cada série.
-No gráfico (eixo de tempo), cada unidade tem seu próprio eixo Y — R$ bi à
-esquerda, % e R$ à direita — e os botões acima do gráfico filtram
-"Todas", só o trabalho original ou só o Banco Master.
+onde o campo `fonte` (`original` ou `credito`) agrupa cada série. O campo
+opcional `escala` converte a unidade (R$ milhões → R$ bi). No gráfico, cada
+unidade tem seu próprio eixo Y — R$ bi à esquerda, % e R$ à direita — e os
+botões acima do gráfico filtram "Todas", só o trabalho original ou só
+crédito e inadimplência.
 
 ### Como funciona o cache
 

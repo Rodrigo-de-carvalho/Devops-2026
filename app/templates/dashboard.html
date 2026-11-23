@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard — Indicadores BCB + Banco Master</title>
+  <title>Dashboard — Indicadores BCB + Crédito e Inadimplência</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>📊 Indicadores do Banco Central — trabalho original + Banco Master</h1>
+    <h1>📊 Indicadores do Banco Central — trabalho original + Crédito e Inadimplência</h1>
     <p class="subtitle">
-      SGS (Dólar, Selic, IPCA) e IF.data (Banco Master) no mesmo gráfico ·
+      SGS (Dólar, Selic, IPCA, crédito, inadimplência e juros) no mesmo gráfico ·
       cache renovado a cada {{ data.cache_hours }}h ·
       persistidos em PostgreSQL gerenciado pela Aiven.io
     </p>
@@ -50,7 +50,7 @@
   </section>
 
   <section class="chart-container">
-    <h2>Séries históricas — dados originais e Banco Master juntos</h2>
+    <h2>Séries históricas — dados originais e crédito bancário juntos</h2>
     <div class="filtros">
       <button type="button" data-filtro="todas" class="ativo">Todas</button>
       {% for fonte, fonte_label in data.fontes.items() %}
@@ -58,7 +58,7 @@
       {% endfor %}
     </div>
     <p class="legenda-estilo">
-      Linha tracejada = trabalho original (SGS, mensal) · linha contínua = Banco Master (IF.data, trimestral).
+      Linha tracejada = trabalho original · linha contínua = crédito e inadimplência (SGS, mensal).
       Clique em uma série na legenda para ocultá-la/mostrá-la.
     </p>
     <canvas id="indicatorsChart" height="110"></canvas>
@@ -79,7 +79,7 @@
     // Unidades parecidas dividem o mesmo eixo Y ("%" e "% a.a." ficam juntos),
     // para que valores de ordens de grandeza diferentes não se achatem.
     const eixos = {
-      "R$ bi": { id: "yBi", title: "R$ bilhões (Banco Master)", position: "left" },
+      "R$ bi": { id: "yBi", title: "R$ bilhões (carteira de crédito)", position: "left" },
       "%": { id: "yPct", title: "%", position: "right" },
       "R$": { id: "yBrl", title: "R$ (Dólar)", position: "right" },
     };
@@ -132,7 +132,7 @@
       }
     });
 
-    // Filtro por fonte: mostra só o trabalho original, só o Banco Master, ou ambos.
+    // Filtro por fonte: mostra só o trabalho original, só crédito e inadimplência, ou ambos.
     document.querySelectorAll(".filtros button").forEach(btn => {
       btn.addEventListener("click", () => {
         const filtro = btn.dataset.filtro;
